@@ -1,0 +1,15 @@
+todo.md
+venv
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test/tool cache
+.pytest_cache/
