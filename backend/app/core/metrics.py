@@ -20,79 +20,89 @@ class MetricsConfig:
 class MetricsEngine:
     config: MetricsConfig = field(default_factory=MetricsConfig)
 
-    _ambulance_travel_times: list[float] = field(default_factory=list, init=False)
-    _vehicle_delays: list[float] = field(default_factory=list, init=False)
-    _max_queue_length: int = field(default=0, init=False)
-    _preemption_count: int = field(default=0, init=False)
+    _ambulance_response_times: list[float] = field(default_factory=list, init=False)
+    _reservation_attempts: int = field(default=0, init=False)
+    _reservation_successes: int = field(default=0, init=False)
+    _conflict_frequency: int = field(default=0, init=False)
+    _deadlock_count: int = field(default=0, init=False)
+    _queue_lengths: list[int] = field(default_factory=list, init=False)
+    _corridor_stability_durations: list[float] = field(default_factory=list, init=False)
 
-    _congestion_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
-    _avg_delay_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
-    _avg_ambulance_time_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
-    _mode_series: Deque[dict] = field(default_factory=deque, init=False)
+    _response_time_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
+    _reservation_success_rate_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
+    _queue_length_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
+    _deadlock_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
 
-    def record_ambulance_travel_time(self, travel_time: float) -> None:
-        self._ambulance_travel_times.append(float(travel_time))
+    def record_response_time(self, response_time: float) -> None:
+        self._ambulance_response_times.append(float(response_time))
 
-    def record_vehicle_delay(self, delay: float) -> None:
-        self._vehicle_delays.append(float(delay))
+    def record_reservation_result(self, approved: bool) -> None:
+        self._reservation_attempts += 1
+        if approved:
+            self._reservation_successes += 1
+
+    def record_conflict(self, count: int = 1) -> None:
+        self._conflict_frequency += max(0, int(count))
+
+    def record_deadlock(self, count: int = 1) -> None:
+        self._deadlock_count += max(0, int(count))
 
     def record_queue_length(self, queue_length: int) -> None:
-        self._max_queue_length = max(self._max_queue_length, int(queue_length))
+        self._queue_lengths.append(max(0, int(queue_length)))
 
-    def increment_preemption_count(self, amount: int = 1) -> None:
-        self._preemption_count += max(0, int(amount))
+    def record_corridor_stability_duration(self, duration: float) -> None:
+        self._corridor_stability_durations.append(float(duration))
 
-    def record_congestion_index(self, congestion_index: float, timestamp: int) -> None:
-        self._append_series(self._congestion_series, TimeSeriesPoint(timestamp=timestamp, value=float(congestion_index)))
+    def record_tick(self, timestamp: int) -> None:
+        avg_response_time = self._average(self._ambulance_response_times)
+        reservation_success_rate = self._ratio(self._reservation_successes, self._reservation_attempts)
+        avg_queue_length = self._average(self._queue_lengths)
 
-    def record_tick_summary(self, timestamp: int, mode: str = "intelligent") -> None:
-        avg_delay = self._average(self._vehicle_delays)
-        avg_ambulance_time = self._average(self._ambulance_travel_times)
-
-        self._append_series(self._avg_delay_series, TimeSeriesPoint(timestamp=timestamp, value=avg_delay))
+        self._append_series(self._response_time_series, TimeSeriesPoint(timestamp=timestamp, value=avg_response_time))
         self._append_series(
-            self._avg_ambulance_time_series,
-            TimeSeriesPoint(timestamp=timestamp, value=avg_ambulance_time),
+            self._reservation_success_rate_series,
+            TimeSeriesPoint(timestamp=timestamp, value=reservation_success_rate),
         )
-
-        self._mode_series.append(
-            {
-                "timestamp": int(timestamp),
-                "mode": mode,
-                "avg_vehicle_delay": avg_delay,
-                "avg_ambulance_travel_time": avg_ambulance_time,
-            }
+        self._append_series(
+            self._queue_length_series,
+            TimeSeriesPoint(timestamp=timestamp, value=avg_queue_length),
         )
-        self._trim_deque(self._mode_series)
+        self._append_series(
+            self._deadlock_series,
+            TimeSeriesPoint(timestamp=timestamp, value=float(self._deadlock_count)),
+        )
 
     def export_snapshot(self) -> dict:
         return {
-            "ambulance_travel_times": list(self._ambulance_travel_times),
-            "avg_ambulance_travel_time": self._average(self._ambulance_travel_times),
-            "vehicle_delays": list(self._vehicle_delays),
-            "avg_vehicle_delay": self._average(self._vehicle_delays),
-            "max_queue_length": self._max_queue_length,
-            "preemption_count": self._preemption_count,
-            "congestion_index": self._latest_series_value(self._congestion_series),
+            "ambulance_response_times": list(self._ambulance_response_times),
+            "avg_response_time": self._average(self._ambulance_response_times),
+            "reservation_success_rate": self._ratio(self._reservation_successes, self._reservation_attempts),
+            "conflict_frequency": self._conflict_frequency,
+            "deadlock_count": self._deadlock_count,
+            "average_queue_length": self._average(self._queue_lengths),
+            "corridor_stability_duration": self._average(self._corridor_stability_durations),
             "time_series": {
-                "congestion_index": [self._point_to_dict(point) for point in self._congestion_series],
-                "avg_vehicle_delay": [self._point_to_dict(point) for point in self._avg_delay_series],
-                "avg_ambulance_travel_time": [
-                    self._point_to_dict(point) for point in self._avg_ambulance_time_series
+                "avg_response_time": [self._point_to_dict(point) for point in self._response_time_series],
+                "reservation_success_rate": [
+                    self._point_to_dict(point) for point in self._reservation_success_rate_series
                 ],
-                "mode_snapshots": list(self._mode_series),
+                "average_queue_length": [self._point_to_dict(point) for point in self._queue_length_series],
+                "deadlock_count": [self._point_to_dict(point) for point in self._deadlock_series],
             },
         }
 
     def reset(self) -> None:
-        self._ambulance_travel_times.clear()
-        self._vehicle_delays.clear()
-        self._max_queue_length = 0
-        self._preemption_count = 0
-        self._congestion_series.clear()
-        self._avg_delay_series.clear()
-        self._avg_ambulance_time_series.clear()
-        self._mode_series.clear()
+        self._ambulance_response_times.clear()
+        self._reservation_attempts = 0
+        self._reservation_successes = 0
+        self._conflict_frequency = 0
+        self._deadlock_count = 0
+        self._queue_lengths.clear()
+        self._corridor_stability_durations.clear()
+        self._response_time_series.clear()
+        self._reservation_success_rate_series.clear()
+        self._queue_length_series.clear()
+        self._deadlock_series.clear()
 
     def _append_series(self, series: Deque[TimeSeriesPoint], point: TimeSeriesPoint) -> None:
         series.append(point)
@@ -107,6 +117,12 @@ class MetricsEngine:
         if not values:
             return 0.0
         return sum(values) / len(values)
+
+    @staticmethod
+    def _ratio(numerator: int, denominator: int) -> float:
+        if denominator <= 0:
+            return 0.0
+        return float(numerator) / float(denominator)
 
     @staticmethod
     def _latest_series_value(series: Deque[TimeSeriesPoint]) -> float:
