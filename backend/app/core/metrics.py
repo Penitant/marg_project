@@ -25,8 +25,15 @@ class MetricsEngine:
     _reservation_successes: int = field(default=0, init=False)
     _conflict_frequency: int = field(default=0, init=False)
     _deadlock_count: int = field(default=0, init=False)
+    _deadlock_scc_count: int = field(default=0, init=False)
+    _deadlock_resolution_count: int = field(default=0, init=False)
+    _revocation_count: int = field(default=0, init=False)
     _queue_lengths: list[int] = field(default_factory=list, init=False)
     _corridor_stability_durations: list[float] = field(default_factory=list, init=False)
+    _scc_sizes: list[int] = field(default_factory=list, init=False)
+    _wait_times: list[int] = field(default_factory=list, init=False)
+    _effective_priorities: list[float] = field(default_factory=list, init=False)
+    _max_wait_time: int = field(default=0, init=False)
 
     _response_time_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
     _reservation_success_rate_series: Deque[TimeSeriesPoint] = field(default_factory=deque, init=False)
@@ -47,11 +54,29 @@ class MetricsEngine:
     def record_deadlock(self, count: int = 1) -> None:
         self._deadlock_count += max(0, int(count))
 
+    def record_deadlock_sccs(self, sccs: list[tuple[str, ...]]) -> None:
+        self._deadlock_scc_count += len(sccs)
+        self._scc_sizes.extend(len(scc) for scc in sccs)
+
+    def record_deadlock_resolution(self, count: int = 1) -> None:
+        self._deadlock_resolution_count += max(0, int(count))
+
+    def record_revocation(self, count: int = 1) -> None:
+        self._revocation_count += max(0, int(count))
+
     def record_queue_length(self, queue_length: int) -> None:
         self._queue_lengths.append(max(0, int(queue_length)))
 
     def record_corridor_stability_duration(self, duration: float) -> None:
         self._corridor_stability_durations.append(float(duration))
+
+    def record_wait_time(self, wait_time: int) -> None:
+        value = max(0, int(wait_time))
+        self._wait_times.append(value)
+        self._max_wait_time = max(self._max_wait_time, value)
+
+    def record_effective_priority(self, priority: float) -> None:
+        self._effective_priorities.append(float(priority))
 
     def record_tick(self, timestamp: int) -> None:
         avg_response_time = self._average(self._ambulance_response_times)
@@ -79,6 +104,13 @@ class MetricsEngine:
             "reservation_success_rate": self._ratio(self._reservation_successes, self._reservation_attempts),
             "conflict_frequency": self._conflict_frequency,
             "deadlock_count": self._deadlock_count,
+            "deadlock_scc_count": self._deadlock_scc_count,
+            "deadlock_resolution_count": self._deadlock_resolution_count,
+            "revocation_count": self._revocation_count,
+            "avg_scc_size": self._average_int(self._scc_sizes),
+            "max_wait_time": self._max_wait_time,
+            "avg_effective_priority": self._average(self._effective_priorities),
+            "fairness_index": self._variance_int(self._wait_times),
             "average_queue_length": self._average(self._queue_lengths),
             "corridor_stability_duration": self._average(self._corridor_stability_durations),
             "time_series": {
@@ -97,8 +129,15 @@ class MetricsEngine:
         self._reservation_successes = 0
         self._conflict_frequency = 0
         self._deadlock_count = 0
+        self._deadlock_scc_count = 0
+        self._deadlock_resolution_count = 0
+        self._revocation_count = 0
         self._queue_lengths.clear()
         self._corridor_stability_durations.clear()
+        self._scc_sizes.clear()
+        self._wait_times.clear()
+        self._effective_priorities.clear()
+        self._max_wait_time = 0
         self._response_time_series.clear()
         self._reservation_success_rate_series.clear()
         self._queue_length_series.clear()
@@ -123,6 +162,19 @@ class MetricsEngine:
         if denominator <= 0:
             return 0.0
         return float(numerator) / float(denominator)
+
+    @staticmethod
+    def _average_int(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        return float(sum(values)) / float(len(values))
+
+    @staticmethod
+    def _variance_int(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        mean = float(sum(values)) / float(len(values))
+        return float(sum((value - mean) ** 2 for value in values)) / float(len(values))
 
     @staticmethod
     def _latest_series_value(series: Deque[TimeSeriesPoint]) -> float:

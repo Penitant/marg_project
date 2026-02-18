@@ -5,8 +5,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.config import DEADLOCK_CHECK_INTERVAL, DEFAULT_PHASE_DURATION, PEAK_MULTIPLIER, TICK_INTERVAL
 from backend.app.core.ambulance_agent import AmbulanceAgent
 from backend.app.core.city_graph import CityGraph
+from backend.app.core.coordination_protocol import (
+    build_wait_for_graph,
+    detect_deadlock_cycles,
+    select_revocations_for_cycles,
+)
 from backend.app.core.message_bus import MessageBus
 from backend.app.core.metrics import MetricsEngine
 from backend.app.core.signal_agent import SignalAgent
@@ -15,9 +21,10 @@ from backend.app.core.simulation_interface import SimulationInterface
 
 @dataclass(slots=True)
 class SimulationEngineConfig:
-    tick_interval: float = 1.0
-    default_phase_duration: int = 30
-    peak_multiplier: float = 1.2
+    tick_interval: float = TICK_INTERVAL
+    default_phase_duration: int = DEFAULT_PHASE_DURATION
+    peak_multiplier: float = PEAK_MULTIPLIER
+    deadlock_check_interval: int = DEADLOCK_CHECK_INTERVAL
 
 
 @dataclass(slots=True)
@@ -37,6 +44,8 @@ class SimulationEngine(SimulationInterface):
 
     _ambulance_seq: int = field(default=1, init=False)
     _rng: random.Random = field(default_factory=random.Random, init=False)
+    _last_deadlocks: list[tuple[str, ...]] = field(default_factory=list, init=False)
+    _last_revocations: list[str] = field(default_factory=list, init=False)
 
     def reset(self, seed: int) -> None:
         self._rng.seed(seed)
@@ -48,6 +57,8 @@ class SimulationEngine(SimulationInterface):
         self.signals.clear()
         self.ambulances.clear()
         self._ambulance_seq = 1
+        self._last_deadlocks.clear()
+        self._last_revocations.clear()
 
     def add_intersection(self, intersection_id: str) -> None:
         self.city_graph.add_node(intersection_id)
@@ -164,8 +175,13 @@ class SimulationEngine(SimulationInterface):
             "ambulances": [ambulance.get_state() for ambulance in self.ambulances.values()],
             "edges": self.city_graph.get_edges(),
             "reservations": self._collect_reservations(),
+            "deadlocks": [list(scc) for scc in self._last_deadlocks],
+            "revocations": list(self._last_revocations),
             "metrics": self.metrics_engine.export_snapshot(),
         }
+
+    def get_system_snapshot(self) -> dict:
+        return self.get_state_snapshot()
 
     def _collect_reservations(self) -> list[dict]:
         reservations: list[dict] = []
@@ -185,13 +201,87 @@ class SimulationEngine(SimulationInterface):
             self.city_graph.set_edge_congestion(edge_id, max(0.2, current + adjustment))
 
     def _record_metrics(self) -> None:
+        self._last_deadlocks = []
+        self._last_revocations = []
+
         for ambulance in self.ambulances.values():
             if ambulance.arrived:
                 self.metrics_engine.record_response_time(ambulance.response_time)
+            self.metrics_engine.record_wait_time(ambulance.waiting_ticks)
+            self.metrics_engine.record_effective_priority(ambulance.effective_priority)
         for signal in self.signals.values():
             total_queue = sum(signal.queue_state.values())
             self.metrics_engine.record_queue_length(total_queue)
             queued_reservations = len(signal.reservation_queue)
             if queued_reservations > 0:
                 self.metrics_engine.record_conflict(queued_reservations)
+
+        if self.config.deadlock_check_interval > 0 and self.tick_count % self.config.deadlock_check_interval == 0:
+            deadlock_cycles = self._scan_deadlocks(self.tick_count)
+            self._last_deadlocks = deadlock_cycles
+            if deadlock_cycles:
+                self.metrics_engine.record_deadlock(len(deadlock_cycles))
+                self.metrics_engine.record_deadlock_sccs(deadlock_cycles)
+                revocations = self._resolve_deadlocks(deadlock_cycles)
+                self._last_revocations = revocations
+                if revocations:
+                    self.metrics_engine.record_deadlock_resolution(len(revocations))
+                    self.metrics_engine.record_revocation(len(revocations))
+
         self.metrics_engine.record_tick(self.tick_count)
+
+    def _scan_deadlocks(self, timestamp: int) -> list[tuple[str, ...]]:
+        active_by_intersection: dict[str, str] = {}
+        queued_by_intersection: dict[str, list[str]] = {}
+
+        for signal in self.signals.values():
+            if signal.active_reservation is not None:
+                activated_at_raw = signal.active_reservation.get("activated_at")
+                activated_at = timestamp if activated_at_raw is None else int(activated_at_raw)
+                hold_elapsed = timestamp - activated_at
+                if hold_elapsed >= signal.min_reservation_hold_ticks:
+                    active_by_intersection[signal.intersection_id] = str(signal.active_reservation.get("ambulance_id", ""))
+
+            queued_by_intersection[signal.intersection_id] = [
+                str(item.get("ambulance_id", "")) for item in signal.reservation_queue
+            ]
+
+        wait_for = build_wait_for_graph(active_by_intersection, queued_by_intersection)
+        return detect_deadlock_cycles(wait_for)
+
+    def _resolve_deadlocks(self, cycles: list[tuple[str, ...]]) -> list[str]:
+        requested_at_by_ambulance = {
+            ambulance_id: (
+                ambulance.first_reservation_request_timestamp
+                if ambulance.first_reservation_request_timestamp is not None
+                else 10**12
+            )
+            for ambulance_id, ambulance in self.ambulances.items()
+        }
+
+        victims = sorted(select_revocations_for_cycles(cycles, requested_at_by_ambulance))
+        if not victims:
+            return []
+
+        for signal in self.signals.values():
+            if signal.active_reservation is None:
+                continue
+            holder = str(signal.active_reservation.get("ambulance_id", ""))
+            if holder not in victims:
+                continue
+
+            self.deliver_message(
+                {
+                    "type": "reservation_revoke",
+                    "sender_id": signal.agent_id,
+                    "target_id": f"AMB:{holder}",
+                    "payload": {
+                        "corridor_id": signal.active_reservation.get("corridor_id"),
+                        "intersection_id": signal.intersection_id,
+                        "reason": "deadlock_resolution",
+                    },
+                    "timestamp": self.tick_count,
+                }
+            )
+
+        return victims

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from backend.config import (
+    ALPHA,
+    BETA,
+    MAX_CORRIDOR_LENGTH,
+    MAX_RETRY_BEFORE_REPLAN,
+    REVOCATION_COOLDOWN_TICKS,
+    WAIT_ALPHA,
+)
 from backend.app.core.city_graph import CityGraph
-
-CORRIDOR_DEPTH = 3
-ALPHA = 0.7
-BETA = 0.3
-MAX_RETRY_BEFORE_REPLAN = 3
 
 
 @dataclass(slots=True)
@@ -19,15 +22,21 @@ class AmbulanceAgent:
     destination: str
     planned_path: list[str] = field(default_factory=list)
     path_index: int = 0
-    corridor_depth: int = CORRIDOR_DEPTH
+    corridor_depth: int = MAX_CORRIDOR_LENGTH
     alpha: float = ALPHA
     beta: float = BETA
+    wait_alpha: float = WAIT_ALPHA
     max_retry_before_replan: int = MAX_RETRY_BEFORE_REPLAN
+    revocation_cooldown_ticks: int = REVOCATION_COOLDOWN_TICKS
     reservation_status: str = "idle"
     response_time: float = 0.0
     eta: float = field(default=float("inf"), init=False)
     arrived: bool = False
     retry_counter: int = 0
+    cooldown_remaining: int = 0
+    first_reservation_request_timestamp: int | None = None
+    waiting_ticks: int = 0
+    effective_priority: float = 0.0
     reservation_window: dict[str, dict] = field(default_factory=dict)
     _inbox: list[dict] = field(default_factory=list)
     _outbox: list[dict] = field(default_factory=list)
@@ -53,6 +62,14 @@ class AmbulanceAgent:
     def tick(self, timestamp: int) -> None:
         self._process_messages()
         if self.arrived:
+            return
+
+        self._update_waiting_ticks(timestamp)
+
+        if self.cooldown_remaining > 0:
+            self.cooldown_remaining -= 1
+            self._update_remaining_eta()
+            self.reservation_status = "cooldown"
             return
 
         if len(self.planned_path) < 2:
@@ -92,6 +109,7 @@ class AmbulanceAgent:
 
         self._release_reservation_for_junction(prev_node, next_node, timestamp)
         self._prune_past_reservations()
+        self._reset_wait_aging()
         self.reservation_status = "idle"
 
     def drain_outbox(self) -> list[dict]:
@@ -112,6 +130,9 @@ class AmbulanceAgent:
             "reservation_status": self.reservation_status,
             "reservation_window": {k: dict(v) for k, v in self.reservation_window.items()},
             "retry_counter": self.retry_counter,
+            "cooldown_remaining": self.cooldown_remaining,
+            "waiting_ticks": self.waiting_ticks,
+            "effective_priority": self.effective_priority,
             "arrived": self.arrived,
         }
 
@@ -180,8 +201,13 @@ class AmbulanceAgent:
         )
         self.reservation_window[junction_id] = state
         self.reservation_status = "denied"
+        self._release_all_reservations(int(message.get("timestamp", 0)))
+        self.cooldown_remaining = self.revocation_cooldown_ticks
 
     def _request_window_reservations(self, window: list[str], timestamp: int) -> None:
+        if self.first_reservation_request_timestamp is None:
+            self.first_reservation_request_timestamp = timestamp
+
         for junction_id in window:
             state = self.reservation_window.get(junction_id, {})
             if state.get("status") == "approved":
@@ -192,7 +218,7 @@ class AmbulanceAgent:
                 continue
 
             target_idx = self.planned_path.index(junction_id)
-            priority = self.compute_priority(target_idx)
+            priority = self.compute_priority(target_idx, timestamp)
             required_phase = self._required_phase_for_index(target_idx)
             corridor_id = str(state.get("corridor_id", f"{self.ambulance_id}:{junction_id}"))
 
@@ -277,10 +303,17 @@ class AmbulanceAgent:
             if junction_id not in valid:
                 self.reservation_window.pop(junction_id, None)
 
-    def compute_priority(self, target_path_index: int) -> float:
+    def compute_priority(self, target_path_index: int, current_timestamp: int) -> float:
         remaining_distance = max(self._remaining_distance_from_current(), 0.0001)
         distance_to_junction = max(self._distance_to_path_index(target_path_index), 0.0001)
-        return (self.alpha * (1.0 / remaining_distance)) + (self.beta * (1.0 / distance_to_junction))
+        base_priority = (self.alpha * (1.0 / remaining_distance)) + (self.beta * (1.0 / distance_to_junction))
+        wait_ticks = 0
+        if self.first_reservation_request_timestamp is not None:
+            wait_ticks = max(0, current_timestamp - self.first_reservation_request_timestamp)
+
+        self.waiting_ticks = wait_ticks
+        self.effective_priority = base_priority + (self.wait_alpha * wait_ticks)
+        return self.effective_priority
 
     def _remaining_distance_from_current(self) -> float:
         total = 0.0
@@ -315,6 +348,16 @@ class AmbulanceAgent:
 
     def _update_remaining_eta(self) -> None:
         self.eta = self._remaining_distance_from_current()
+
+    def _update_waiting_ticks(self, timestamp: int) -> None:
+        if self.first_reservation_request_timestamp is None:
+            self.waiting_ticks = 0
+            return
+        self.waiting_ticks = max(0, timestamp - self.first_reservation_request_timestamp)
+
+    def _reset_wait_aging(self) -> None:
+        self.first_reservation_request_timestamp = None
+        self.waiting_ticks = 0
 
     def _edge_weight(self, source: str, target: str) -> float:
         for edge in self.city_graph.get_edges():

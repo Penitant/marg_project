@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
+from backend.config import MIN_RESERVATION_HOLD_TICKS, PRIORITY_HYSTERESIS_MARGIN, RESERVATION_TIMEOUT
 
 Direction = Literal["N", "S", "E", "W"]
-PRIORITY_HYSTERESIS_MARGIN = 0.05
-MIN_RESERVATION_HOLD_TICKS = 2
 
 
 @dataclass(slots=True)
@@ -23,7 +22,7 @@ class SignalSnapshot:
 class SignalAgent:
     agent_id: str
     intersection_id: str
-    reservation_timeout: int = 10
+    reservation_timeout: int = RESERVATION_TIMEOUT
     priority_hysteresis_margin: float = PRIORITY_HYSTERESIS_MARGIN
     min_reservation_hold_ticks: int = MIN_RESERVATION_HOLD_TICKS
     neighbor_ids: list[str] = field(default_factory=list)

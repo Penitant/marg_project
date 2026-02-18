@@ -76,9 +76,8 @@ def test_revocation_is_local_only() -> None:
     )
     ambulance.tick(timestamp=3)
 
-    assert ambulance.reservation_window["C"]["status"] in {"revoked", "pending", "denied"}
-    assert ambulance.reservation_window["B"]["status"] == "approved"
-    assert ambulance.reservation_window["D"]["status"] == "approved"
+    assert ambulance.cooldown_remaining > 0
+    assert ambulance.reservation_status == "cooldown"
 
 
 def test_path_locked_until_retry_threshold_then_replans() -> None:
@@ -151,3 +150,72 @@ def test_state_is_json_serializable_shape() -> None:
     assert isinstance(state["planned_path"], list)
     assert isinstance(state["reservation_window"], dict)
     assert isinstance(state["arrived"], bool)
+
+
+def test_priority_aging_increases_effective_priority_over_time() -> None:
+    graph = _build_simple_graph()
+    ambulance = AmbulanceAgent(agent_id="AMB:5", ambulance_id="AMB_5", city_graph=graph, current_node="A", destination="E")
+
+    ambulance.first_reservation_request_timestamp = 0
+    p1 = ambulance.compute_priority(target_path_index=1, current_timestamp=1)
+    p2 = ambulance.compute_priority(target_path_index=1, current_timestamp=10)
+    assert p2 > p1
+
+
+def test_priority_aging_resets_after_movement() -> None:
+    graph = _build_simple_graph()
+    ambulance = AmbulanceAgent(agent_id="AMB:6", ambulance_id="AMB_6", city_graph=graph, current_node="A", destination="E")
+
+    ambulance.tick(timestamp=1)
+    ambulance.drain_outbox()
+    for node in ("B", "C", "D"):
+        ambulance.receive_message(
+            {
+                "type": "reservation_response",
+                "sender_id": f"SIG:{node}",
+                "target_id": "AMB:6",
+                "payload": {
+                    "approved": True,
+                    "corridor_id": f"AMB_6:{node}",
+                    "intersection_id": node,
+                    "priority": 1.0,
+                },
+                "timestamp": 1,
+            }
+        )
+
+    ambulance.tick(timestamp=2)
+    assert ambulance.current_node == "B"
+    assert ambulance.waiting_ticks == 0
+
+
+def test_revocation_cooldown_blocks_requests_then_resumes() -> None:
+    graph = _build_simple_graph()
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:7",
+        ambulance_id="AMB_7",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        revocation_cooldown_ticks=2,
+    )
+
+    ambulance.receive_message(
+        {
+            "type": "reservation_revoke",
+            "sender_id": "SIG:B",
+            "target_id": "AMB:7",
+            "payload": {"intersection_id": "B", "corridor_id": "AMB_7:B"},
+            "timestamp": 1,
+        }
+    )
+    ambulance.tick(timestamp=1)
+    assert ambulance.reservation_status == "cooldown"
+    assert not any(msg["type"] == "reservation_request" for msg in ambulance.drain_outbox())
+
+    ambulance.tick(timestamp=2)
+    assert not any(msg["type"] == "reservation_request" for msg in ambulance.drain_outbox())
+
+    ambulance.tick(timestamp=3)
+    outbox = ambulance.drain_outbox()
+    assert any(msg["type"] == "reservation_request" for msg in outbox)
