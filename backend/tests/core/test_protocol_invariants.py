@@ -1,6 +1,5 @@
 import json
 
-from backend.config import REVOCATION_COOLDOWN_TICKS
 from backend.app.core.simulation_engine import SimulationEngine, SimulationEngineConfig
 
 
@@ -69,9 +68,9 @@ def test_cooldown_boundedness() -> None:
     )
 
     engine.step()
-    assert ambulance.cooldown_remaining <= REVOCATION_COOLDOWN_TICKS
+    assert ambulance.cooldown_remaining <= engine.config.revocation_cooldown_ticks
 
-    for _ in range(REVOCATION_COOLDOWN_TICKS + 5):
+    for _ in range(engine.config.revocation_cooldown_ticks + 5):
         engine.step()
 
     assert ambulance.cooldown_remaining == 0

@@ -1,5 +1,9 @@
 from backend.app.core.ambulance_agent import AmbulanceAgent
 from backend.app.core.city_graph import CityGraph
+from backend.config import EngineConfig
+
+
+_CFG = EngineConfig()
 
 
 def _build_simple_graph() -> CityGraph:
@@ -13,7 +17,19 @@ def _build_simple_graph() -> CityGraph:
 
 def test_sliding_window_requires_three_approvals_before_movement() -> None:
     graph = _build_simple_graph()
-    ambulance = AmbulanceAgent(agent_id="AMB:1", ambulance_id="AMB_1", city_graph=graph, current_node="A", destination="E")
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:1",
+        ambulance_id="AMB_1",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
+    )
 
     ambulance.tick(timestamp=1)
     requests = ambulance.drain_outbox()
@@ -45,7 +61,19 @@ def test_sliding_window_requires_three_approvals_before_movement() -> None:
 
 def test_revocation_is_local_only() -> None:
     graph = _build_simple_graph()
-    ambulance = AmbulanceAgent(agent_id="AMB:2", ambulance_id="AMB_2", city_graph=graph, current_node="A", destination="E")
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:2",
+        ambulance_id="AMB_2",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
+    )
     ambulance.tick(timestamp=1)
     ambulance.drain_outbox()
 
@@ -93,7 +121,12 @@ def test_path_locked_until_retry_threshold_then_replans() -> None:
         city_graph=graph,
         current_node="A",
         destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
         max_retry_before_replan=2,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
     )
 
     assert ambulance.planned_path == ["A", "B", "E"]
@@ -140,7 +173,19 @@ def test_path_locked_until_retry_threshold_then_replans() -> None:
 
 def test_state_is_json_serializable_shape() -> None:
     graph = _build_simple_graph()
-    ambulance = AmbulanceAgent(agent_id="AMB:4", ambulance_id="AMB_4", city_graph=graph, current_node="A", destination="E")
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:4",
+        ambulance_id="AMB_4",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
+    )
 
     state = ambulance.get_state()
     assert state["id"] == "AMB_4"
@@ -154,7 +199,19 @@ def test_state_is_json_serializable_shape() -> None:
 
 def test_priority_aging_increases_effective_priority_over_time() -> None:
     graph = _build_simple_graph()
-    ambulance = AmbulanceAgent(agent_id="AMB:5", ambulance_id="AMB_5", city_graph=graph, current_node="A", destination="E")
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:5",
+        ambulance_id="AMB_5",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
+    )
 
     ambulance.first_reservation_request_timestamp = 0
     p1 = ambulance.compute_priority(target_path_index=1, current_timestamp=1)
@@ -164,7 +221,19 @@ def test_priority_aging_increases_effective_priority_over_time() -> None:
 
 def test_priority_aging_resets_after_movement() -> None:
     graph = _build_simple_graph()
-    ambulance = AmbulanceAgent(agent_id="AMB:6", ambulance_id="AMB_6", city_graph=graph, current_node="A", destination="E")
+    ambulance = AmbulanceAgent(
+        agent_id="AMB:6",
+        ambulance_id="AMB_6",
+        city_graph=graph,
+        current_node="A",
+        destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
+        revocation_cooldown_ticks=_CFG.revocation_cooldown_ticks,
+    )
 
     ambulance.tick(timestamp=1)
     ambulance.drain_outbox()
@@ -197,6 +266,11 @@ def test_revocation_cooldown_blocks_requests_then_resumes() -> None:
         city_graph=graph,
         current_node="A",
         destination="E",
+        corridor_depth=_CFG.corridor_depth,
+        alpha=_CFG.alpha,
+        beta=_CFG.beta,
+        wait_alpha=_CFG.wait_alpha,
+        max_retry_before_replan=_CFG.max_retry_before_replan,
         revocation_cooldown_ticks=2,
     )
 

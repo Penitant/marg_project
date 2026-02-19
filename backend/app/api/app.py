@@ -13,37 +13,19 @@ import time
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from backend.config import SNAPSHOT_BROADCAST_INTERVAL, TICK_INTERVAL
-from backend.app.core.simulation_engine import SimulationEngine, SimulationEngineConfig
+from backend.config import EngineConfig
+from backend.app.core.simulation_engine import SimulationEngine
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MARG API")
 
-engine = SimulationEngine(config=SimulationEngineConfig(tick_interval=TICK_INTERVAL))
+engine = SimulationEngine(config=EngineConfig())
 simulation_thread: threading.Thread | None = None
 engine_lock = threading.Lock()
 connected_clients: set[WebSocket] = set()
 running = False
 broadcaster_task: asyncio.Task | None = None
-
-
-DEFAULT_ROADS: tuple[tuple[str, str], ...] = (
-    ("A", "B"),
-    ("B", "C"),
-    ("C", "D"),
-    ("D", "E"),
-)
-
-
-def _initialize_default_topology() -> None:
-    for source, target in DEFAULT_ROADS:
-        try:
-            engine.add_road(source, target, base_time=1)
-        except ValueError:
-            pass
-        if target not in engine.signals:
-            engine.add_signal(target)
 
 
 def simulation_loop() -> None:
@@ -54,7 +36,7 @@ def simulation_loop() -> None:
                 engine.step()
         except Exception as exc:
             logger.exception("Simulation loop error: %s", exc)
-        time.sleep(TICK_INTERVAL)
+        time.sleep(engine.config.tick_interval)
 
 
 async def _broadcast_loop() -> None:
@@ -62,13 +44,13 @@ async def _broadcast_loop() -> None:
     last_broadcast_tick = -1
 
     while running:
-        await asyncio.sleep(max(TICK_INTERVAL / 2, 0.01))
+        await asyncio.sleep(max(engine.config.tick_interval / 2, 0.01))
 
         with engine_lock:
             tick = engine.tick_count
             if tick == last_broadcast_tick:
                 continue
-            if SNAPSHOT_BROADCAST_INTERVAL > 1 and tick % SNAPSHOT_BROADCAST_INTERVAL != 0:
+            if engine.config.snapshot_broadcast_interval > 1 and tick % engine.config.snapshot_broadcast_interval != 0:
                 continue
             snapshot = copy.deepcopy(engine.get_system_snapshot())
             last_broadcast_tick = tick
@@ -91,9 +73,6 @@ async def _broadcast_loop() -> None:
 @app.on_event("startup")
 async def on_startup() -> None:
     global running, simulation_thread, broadcaster_task
-
-    with engine_lock:
-        _initialize_default_topology()
 
     running = True
     simulation_thread = threading.Thread(target=simulation_loop, daemon=True, name="marg-simulation-thread")
@@ -152,7 +131,6 @@ def spawn_ambulance(payload: SpawnRequest) -> dict:
 def reset_simulation(payload: ResetRequest) -> dict:
     with engine_lock:
         engine.reset(seed=payload.seed)
-        _initialize_default_topology()
         snapshot = copy.deepcopy(engine.get_system_snapshot())
     return {"status": "ok", "seed": payload.seed, "snapshot": snapshot}
 

@@ -2,14 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from backend.config import (
-    ALPHA,
-    BETA,
-    MAX_CORRIDOR_LENGTH,
-    MAX_RETRY_BEFORE_REPLAN,
-    REVOCATION_COOLDOWN_TICKS,
-    WAIT_ALPHA,
-)
 from backend.app.core.city_graph import CityGraph
 
 
@@ -20,14 +12,14 @@ class AmbulanceAgent:
     city_graph: CityGraph
     current_node: str
     destination: str
+    corridor_depth: int
+    alpha: float
+    beta: float
+    wait_alpha: float
+    max_retry_before_replan: int
+    revocation_cooldown_ticks: int
     planned_path: list[str] = field(default_factory=list)
     path_index: int = 0
-    corridor_depth: int = MAX_CORRIDOR_LENGTH
-    alpha: float = ALPHA
-    beta: float = BETA
-    wait_alpha: float = WAIT_ALPHA
-    max_retry_before_replan: int = MAX_RETRY_BEFORE_REPLAN
-    revocation_cooldown_ticks: int = REVOCATION_COOLDOWN_TICKS
     reservation_status: str = "idle"
     response_time: float = 0.0
     eta: float = field(default=float("inf"), init=False)

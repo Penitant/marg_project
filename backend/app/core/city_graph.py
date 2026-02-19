@@ -25,6 +25,35 @@ class CityGraph:
         self._edges: Dict[str, Edge] = {}
         self._adj: Dict[str, List[Tuple[str, str]]] = {}
 
+    def clear(self) -> None:
+        self._nodes.clear()
+        self._edges.clear()
+        self._adj.clear()
+
+    def generate_grid(self, rows: int, cols: int) -> None:
+        if rows <= 0 or cols <= 0:
+            raise ValueError("rows and cols must be > 0")
+
+        self.clear()
+
+        for row in range(rows):
+            for col in range(cols):
+                self.add_node(f"r{row}c{col}")
+
+        for row in range(rows):
+            for col in range(cols):
+                current = f"r{row}c{col}"
+
+                if col + 1 < cols:
+                    right = f"r{row}c{col+1}"
+                    self.add_edge(current, right, base_time=1.0)
+                    self.add_edge(right, current, base_time=1.0)
+
+                if row + 1 < rows:
+                    down = f"r{row+1}c{col}"
+                    self.add_edge(current, down, base_time=1.0)
+                    self.add_edge(down, current, base_time=1.0)
+
     def add_node(self, node_id: str) -> None:
         self._nodes.add(node_id)
         self._adj.setdefault(node_id, [])
@@ -70,7 +99,7 @@ class CityGraph:
                 "congestion_factor": edge.congestion_factor,
                 "capacity": edge.capacity,
             }
-            for edge in self._edges.values()
+            for edge in sorted(self._edges.values(), key=lambda item: item.id)
         ]
 
     def get_edge_congestion(self, edge_id: str) -> float:

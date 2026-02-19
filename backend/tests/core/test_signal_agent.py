@@ -1,8 +1,24 @@
 from backend.app.core.signal_agent import SignalAgent
+from backend.config import EngineConfig
+
+
+_CFG = EngineConfig()
 
 
 def test_queue_and_active_reservation_structure() -> None:
-    agent = SignalAgent(agent_id="SIG:I1", intersection_id="I1")
+    agent = SignalAgent(
+        agent_id="SIG:I1",
+        intersection_id="I1",
+        reservation_timeout=_CFG.reservation_timeout,
+        priority_hysteresis_margin=_CFG.priority_hysteresis_margin,
+        min_reservation_hold_ticks=_CFG.min_reservation_hold_ticks,
+        phase_duration={
+            "NS_GREEN": _CFG.default_phase_duration,
+            "NS_YELLOW": _CFG.yellow_phase_duration,
+            "EW_GREEN": _CFG.default_phase_duration,
+            "EW_YELLOW": _CFG.yellow_phase_duration,
+        },
+    )
     agent.receive_message(
         {
             "type": "reservation_request",
@@ -25,7 +41,19 @@ def test_queue_and_active_reservation_structure() -> None:
 
 
 def test_hysteresis_prevents_flip_flop_displacement() -> None:
-    agent = SignalAgent(agent_id="SIG:I2", intersection_id="I2", priority_hysteresis_margin=0.2)
+    agent = SignalAgent(
+        agent_id="SIG:I2",
+        intersection_id="I2",
+        reservation_timeout=_CFG.reservation_timeout,
+        priority_hysteresis_margin=0.2,
+        min_reservation_hold_ticks=_CFG.min_reservation_hold_ticks,
+        phase_duration={
+            "NS_GREEN": _CFG.default_phase_duration,
+            "NS_YELLOW": _CFG.yellow_phase_duration,
+            "EW_GREEN": _CFG.default_phase_duration,
+            "EW_YELLOW": _CFG.yellow_phase_duration,
+        },
+    )
     agent.receive_message(
         {
             "type": "reservation_request",
@@ -66,8 +94,15 @@ def test_higher_priority_displaces_when_margin_exceeded() -> None:
     agent = SignalAgent(
         agent_id="SIG:I3",
         intersection_id="I3",
+        reservation_timeout=_CFG.reservation_timeout,
         priority_hysteresis_margin=0.05,
         min_reservation_hold_ticks=0,
+        phase_duration={
+            "NS_GREEN": _CFG.default_phase_duration,
+            "NS_YELLOW": _CFG.yellow_phase_duration,
+            "EW_GREEN": _CFG.default_phase_duration,
+            "EW_YELLOW": _CFG.yellow_phase_duration,
+        },
     )
     agent.receive_message(
         {
@@ -112,6 +147,8 @@ def test_phase_preemption_switches_to_required_green() -> None:
     agent = SignalAgent(
         agent_id="SIG:I4",
         intersection_id="I4",
+        reservation_timeout=_CFG.reservation_timeout,
+        priority_hysteresis_margin=_CFG.priority_hysteresis_margin,
         phase_duration={"NS_GREEN": 10, "NS_YELLOW": 1, "EW_GREEN": 10, "EW_YELLOW": 1},
         current_phase="NS_GREEN",
         min_reservation_hold_ticks=1,

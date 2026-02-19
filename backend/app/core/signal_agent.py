@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
-from backend.config import MIN_RESERVATION_HOLD_TICKS, PRIORITY_HYSTERESIS_MARGIN, RESERVATION_TIMEOUT
 
 Direction = Literal["N", "S", "E", "W"]
 
@@ -22,19 +21,12 @@ class SignalSnapshot:
 class SignalAgent:
     agent_id: str
     intersection_id: str
-    reservation_timeout: int = RESERVATION_TIMEOUT
-    priority_hysteresis_margin: float = PRIORITY_HYSTERESIS_MARGIN
-    min_reservation_hold_ticks: int = MIN_RESERVATION_HOLD_TICKS
+    reservation_timeout: int
+    priority_hysteresis_margin: float
+    min_reservation_hold_ticks: int
+    phase_duration: dict[str, int]
     neighbor_ids: list[str] = field(default_factory=list)
     phase_order: tuple[str, ...] = ("NS_GREEN", "NS_YELLOW", "EW_GREEN", "EW_YELLOW")
-    phase_duration: dict[str, int] = field(
-        default_factory=lambda: {
-            "NS_GREEN": 30,
-            "NS_YELLOW": 5,
-            "EW_GREEN": 30,
-            "EW_YELLOW": 5,
-        }
-    )
     current_phase: str = "NS_GREEN"
     phase_timer: int = 0
     queue_state: dict[Direction, int] = field(

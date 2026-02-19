@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.config import DEADLOCK_CHECK_INTERVAL, DEFAULT_PHASE_DURATION, PEAK_MULTIPLIER, TICK_INTERVAL
+from backend.config import EngineConfig
 from backend.app.core.ambulance_agent import AmbulanceAgent
 from backend.app.core.city_graph import CityGraph
 from backend.app.core.coordination_protocol import (
@@ -19,17 +19,12 @@ from backend.app.core.signal_agent import SignalAgent
 from backend.app.core.simulation_interface import SimulationInterface
 
 
-@dataclass(slots=True)
-class SimulationEngineConfig:
-    tick_interval: float = TICK_INTERVAL
-    default_phase_duration: int = DEFAULT_PHASE_DURATION
-    peak_multiplier: float = PEAK_MULTIPLIER
-    deadlock_check_interval: int = DEADLOCK_CHECK_INTERVAL
+SimulationEngineConfig = EngineConfig
 
 
 @dataclass(slots=True)
 class SimulationEngine(SimulationInterface):
-    config: SimulationEngineConfig = field(default_factory=SimulationEngineConfig)
+    config: EngineConfig = field(default_factory=EngineConfig)
 
     city_graph: CityGraph = field(default_factory=CityGraph, init=False)
     message_bus: MessageBus = field(default_factory=MessageBus, init=False)
@@ -47,10 +42,14 @@ class SimulationEngine(SimulationInterface):
     _last_deadlocks: list[tuple[str, ...]] = field(default_factory=list, init=False)
     _last_revocations: list[str] = field(default_factory=list, init=False)
 
+    def __post_init__(self) -> None:
+        self.reset(seed=0)
+
     def reset(self, seed: int) -> None:
         self._rng.seed(seed)
-        self.message_bus.clear()
-        self.metrics_engine.reset()
+        self.city_graph = CityGraph()
+        self.message_bus = MessageBus()
+        self.metrics_engine = MetricsEngine()
         self.running = False
         self.tick_count = 0
         self.agents.clear()
@@ -59,6 +58,10 @@ class SimulationEngine(SimulationInterface):
         self._ambulance_seq = 1
         self._last_deadlocks.clear()
         self._last_revocations.clear()
+        self.city_graph.generate_grid(self.config.grid_rows, self.config.grid_cols)
+
+        for node in (item["id"] for item in self.city_graph.get_intersections()):
+            self.add_signal(node)
 
     def add_intersection(self, intersection_id: str) -> None:
         self.city_graph.add_node(intersection_id)
@@ -87,13 +90,16 @@ class SimulationEngine(SimulationInterface):
 
         phase_duration = {
             "NS_GREEN": self.config.default_phase_duration,
-            "NS_YELLOW": 5,
+            "NS_YELLOW": self.config.yellow_phase_duration,
             "EW_GREEN": self.config.default_phase_duration,
-            "EW_YELLOW": 5,
+            "EW_YELLOW": self.config.yellow_phase_duration,
         }
         signal = SignalAgent(
             agent_id=f"SIG:{intersection_id}",
             intersection_id=intersection_id,
+            reservation_timeout=self.config.reservation_timeout,
+            priority_hysteresis_margin=self.config.priority_hysteresis_margin,
+            min_reservation_hold_ticks=self.config.min_reservation_hold_ticks,
             phase_duration=phase_duration,
         )
         self.signals[intersection_id] = signal
@@ -112,6 +118,12 @@ class SimulationEngine(SimulationInterface):
             city_graph=self.city_graph,
             current_node=source,
             destination=destination,
+            corridor_depth=self.config.corridor_depth,
+            alpha=self.config.alpha,
+            beta=self.config.beta,
+            wait_alpha=self.config.wait_alpha,
+            max_retry_before_replan=self.config.max_retry_before_replan,
+            revocation_cooldown_ticks=self.config.revocation_cooldown_ticks,
         )
         self.ambulances[assigned_id] = ambulance
         self.register_agent(ambulance)
@@ -197,8 +209,8 @@ class SimulationEngine(SimulationInterface):
         for edge in self.city_graph.get_edges():
             edge_id = edge["id"]
             current = float(edge["congestion_factor"])
-            adjustment = self._rng.uniform(-0.03, 0.03)
-            self.city_graph.set_edge_congestion(edge_id, max(0.2, current + adjustment))
+            adjustment = self._rng.uniform(-self.config.congestion_jitter, self.config.congestion_jitter)
+            self.city_graph.set_edge_congestion(edge_id, max(self.config.min_congestion_factor, current + adjustment))
 
     def _record_metrics(self) -> None:
         self._last_deadlocks = []

@@ -16,12 +16,16 @@ def test_get_state_returns_200() -> None:
 
 def test_spawn_ambulance_modifies_snapshot() -> None:
     with TestClient(app) as client:
+        client.post("/reset", json={"seed": 77})
         before = client.get("/state").json()
         before_count = len(before.get("ambulances", []))
+        nodes = [node["id"] for node in before.get("nodes", [])]
+        start_node = nodes[0]
+        destination_node = nodes[-1]
 
         response = client.post(
             "/spawn_ambulance",
-            json={"start_node": "A", "destination_node": "E"},
+            json={"start_node": start_node, "destination_node": destination_node},
         )
         assert response.status_code == 200
 
