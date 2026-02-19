@@ -9,6 +9,7 @@ import copy
 import logging
 import threading
 import time
+from dataclasses import asdict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -34,26 +35,23 @@ def simulation_loop() -> None:
         try:
             with engine_lock:
                 engine.step()
+                tick_interval = engine.config.tick_interval
         except Exception as exc:
             logger.exception("Simulation loop error: %s", exc)
-        time.sleep(engine.config.tick_interval)
+            tick_interval = 0.01
+        time.sleep(max(float(tick_interval), 0.0))
 
 
 async def _broadcast_loop() -> None:
     global running
-    last_broadcast_tick = -1
 
     while running:
-        await asyncio.sleep(max(engine.config.tick_interval / 2, 0.01))
+        with engine_lock:
+            broadcast_interval = max(float(engine.config.snapshot_broadcast_interval), 0.01)
+        await asyncio.sleep(broadcast_interval)
 
         with engine_lock:
-            tick = engine.tick_count
-            if tick == last_broadcast_tick:
-                continue
-            if engine.config.snapshot_broadcast_interval > 1 and tick % engine.config.snapshot_broadcast_interval != 0:
-                continue
             snapshot = copy.deepcopy(engine.get_system_snapshot())
-            last_broadcast_tick = tick
 
         stale: list[WebSocket] = []
         for websocket in list(connected_clients):
@@ -108,6 +106,29 @@ class ResetRequest(BaseModel):
     seed: int
 
 
+class ResetWithConfigRequest(BaseModel):
+    seed: int
+    grid_rows: int | None = None
+    grid_cols: int | None = None
+    tick_interval: float | None = None
+    corridor_depth: int | None = None
+    reservation_timeout: int | None = None
+    deadlock_check_interval: int | None = None
+    revocation_cooldown_ticks: int | None = None
+    wait_alpha: float | None = None
+    priority_hysteresis_margin: float | None = None
+    default_phase_duration: int | None = None
+    yellow_phase_duration: int | None = None
+    min_reservation_hold_ticks: int | None = None
+    max_retry_before_replan: int | None = None
+    alpha: float | None = None
+    beta: float | None = None
+    congestion_jitter: float | None = None
+    min_congestion_factor: float | None = None
+    peak_multiplier: float | None = None
+    snapshot_broadcast_interval: int | None = None
+
+
 @app.get("/state")
 def get_state() -> dict:
     with engine_lock:
@@ -124,7 +145,7 @@ def get_metrics() -> dict:
 def spawn_ambulance(payload: SpawnRequest) -> dict:
     with engine_lock:
         ambulance_id = engine.spawn_ambulance(payload.start_node, payload.destination_node)
-    return {"status": "ok", "ambulance_id": ambulance_id}
+    return {"ambulance_id": ambulance_id}
 
 
 @app.post("/reset")
@@ -132,7 +153,26 @@ def reset_simulation(payload: ResetRequest) -> dict:
     with engine_lock:
         engine.reset(seed=payload.seed)
         snapshot = copy.deepcopy(engine.get_system_snapshot())
-    return {"status": "ok", "seed": payload.seed, "snapshot": snapshot}
+    return snapshot
+
+
+@app.post("/reset_with_config")
+def reset_with_config(payload: ResetWithConfigRequest) -> dict:
+    global engine
+
+    overrides = payload.model_dump(exclude_none=True)
+    seed = int(overrides.pop("seed"))
+    merged = asdict(EngineConfig())
+    merged.update(overrides)
+    new_config = EngineConfig(**merged)
+
+    with engine_lock:
+        replacement = SimulationEngine(config=new_config)
+        replacement.reset(seed=seed)
+        engine = replacement
+        snapshot = copy.deepcopy(engine.get_system_snapshot())
+
+    return snapshot
 
 
 @app.websocket("/ws")
