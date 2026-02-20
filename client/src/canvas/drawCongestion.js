@@ -15,9 +15,11 @@ export function drawCongestion(ctx, edges, layout, colors) {
     const congestion = clamp(Number(edge.congestion_factor ?? 1), 0, 2)
     const intensity = clamp((congestion - 0.2) / 1.8, 0, 1)
 
-    ctx.lineWidth = 2 + intensity * 2
+    ctx.lineWidth = 1.6 + intensity * 2.6
     ctx.strokeStyle = intensity > 0.5 ? colors.congestionHigh : colors.congestionLow
-    ctx.globalAlpha = 0.25 + intensity * 0.65
+    ctx.globalAlpha = 0.45 + intensity * 0.5
+    ctx.shadowColor = ctx.strokeStyle
+    ctx.shadowBlur = 6 + intensity * 8
 
     ctx.beginPath()
     ctx.moveTo(source.x, source.y)
@@ -25,5 +27,6 @@ export function drawCongestion(ctx, edges, layout, colors) {
     ctx.stroke()
   }
 
+  ctx.shadowBlur = 0
   ctx.restore()
 }

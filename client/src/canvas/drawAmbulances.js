@@ -122,9 +122,10 @@ export function drawAmbulances(ctx, ambulances, layout, previousSnapshot, progre
 
     if (approved) {
       ctx.shadowColor = colors.ambulanceGlow
-      ctx.shadowBlur = 12
+      ctx.shadowBlur = 16
     } else {
-      ctx.shadowBlur = 0
+      ctx.shadowColor = colors.ambulanceBorder
+      ctx.shadowBlur = 6
     }
 
     const pulse = denied ? 1 + 0.15 * Math.sin((clock / 220) * Math.PI * 2) : 1
@@ -132,10 +133,16 @@ export function drawAmbulances(ctx, ambulances, layout, previousSnapshot, progre
     ctx.beginPath()
     ctx.fillStyle = colors.ambulanceFill
     ctx.strokeStyle = colors.ambulanceBorder
-    ctx.lineWidth = 1.5
-    ctx.arc(point.x, point.y, 5.5 * pulse, 0, Math.PI * 2)
+    ctx.lineWidth = 2.2
+    ctx.arc(point.x, point.y, 6.2 * pulse, 0, Math.PI * 2)
     ctx.fill()
     ctx.stroke()
+
+    ctx.shadowBlur = 0
+    ctx.beginPath()
+    ctx.fillStyle = colors.ambulanceBorder
+    ctx.arc(point.x, point.y, 1.6, 0, Math.PI * 2)
+    ctx.fill()
   }
 
   ctx.restore()

@@ -13,9 +13,11 @@ function App() {
     autoSpawnIntervalTicks: 8,
   })
   const [hiddenAmbulances, setHiddenAmbulances] = useState([])
+  const [movementLogs, setMovementLogs] = useState([])
   const lastSeenTimestampRef = useRef(0)
   const arrivedAtByIdRef = useRef(new Map())
   const autoSpawnTickRef = useRef(-1)
+  const previousNodeByIdRef = useRef(new Map())
 
   useEffect(() => {
     if (snapshot.timestamp > lastSeenTimestampRef.current) {
@@ -113,6 +115,36 @@ function App() {
     })
   }, [snapshot.nodes, snapshot.timestamp, uiConfig.autoSpawnEnabled, uiConfig.autoSpawnIntervalTicks])
 
+  useEffect(() => {
+    const tick = Number(snapshot.timestamp ?? 0)
+    const previousNodeById = previousNodeByIdRef.current
+    const nextMap = new Map()
+    const newEntries = []
+
+    for (const ambulance of snapshot.ambulances ?? []) {
+      const currentNode = ambulance.current_node
+      const previousNode = previousNodeById.get(ambulance.id)
+
+      if (previousNode && previousNode !== currentNode) {
+        newEntries.push({
+          id: `${ambulance.id}:${tick}:${currentNode}`,
+          tick,
+          ambulanceId: ambulance.id,
+          from: previousNode,
+          to: currentNode,
+        })
+      }
+
+      nextMap.set(ambulance.id, currentNode)
+    }
+
+    previousNodeByIdRef.current = nextMap
+
+    if (newEntries.length) {
+      setMovementLogs((prev) => [...newEntries, ...prev].slice(0, 200))
+    }
+  }, [snapshot.ambulances, snapshot.timestamp])
+
   const fadeAfterTicks = Math.max(1, Number(uiConfig.fadeAfterTicks))
   const visibleAmbulances = (snapshot.ambulances ?? []).filter((ambulance) => {
     if (!ambulance.arrived) {
@@ -141,6 +173,7 @@ function App() {
           uiConfig={uiConfig}
           onUiConfigChange={setUiConfig}
           hiddenAmbulances={hiddenAmbulances}
+          movementLogs={movementLogs}
         />
       </main>
     </div>

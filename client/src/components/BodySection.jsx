@@ -1,6 +1,7 @@
 import MetricsPanel from './MetricsPanel'
 import SpawnPanel from './SpawnPanel'
 import ConfigPanel from './ConfigPanel'
+import LogsPanel from './LogsPanel'
 
 export default function BodySection({
   metrics,
@@ -13,6 +14,7 @@ export default function BodySection({
   uiConfig,
   onUiConfigChange,
   hiddenAmbulances,
+  movementLogs,
 }) {
   return (
     <section className="body-section">
@@ -31,7 +33,10 @@ export default function BodySection({
             hiddenAmbulances={hiddenAmbulances}
           />
         </div>
-        <MetricsPanel metrics={metrics} />
+        <div className="insights-column">
+          <MetricsPanel metrics={metrics} />
+          <LogsPanel logs={movementLogs} />
+        </div>
       </div>
     </section>
   )

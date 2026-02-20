@@ -129,7 +129,8 @@ export function buildNodeLayout(nodes, edges, width, height, padding = 72) {
 
 export function drawGrid(ctx, edges, layout, colors) {
   ctx.save()
-  ctx.lineWidth = 1.2
+  ctx.lineWidth = 0.9
+  ctx.globalAlpha = 0.55
 
   for (const edge of edges) {
     const source = layout.get(edge.source)
@@ -140,6 +141,8 @@ export function drawGrid(ctx, edges, layout, colors) {
 
     const isHorizontal = Math.abs(target.x - source.x) >= Math.abs(target.y - source.y)
     ctx.strokeStyle = isHorizontal ? colors.edgeEW : colors.edgeNS
+    ctx.shadowColor = ctx.strokeStyle
+    ctx.shadowBlur = 1.5
 
     ctx.beginPath()
     ctx.moveTo(source.x, source.y)
@@ -147,5 +150,6 @@ export function drawGrid(ctx, edges, layout, colors) {
     ctx.stroke()
   }
 
+  ctx.shadowBlur = 0
   ctx.restore()
 }

@@ -17,9 +17,20 @@ export function drawSignals(ctx, signals, layout, colors) {
           ? colors.signalEW
           : colors.signalYellow
 
+    ctx.shadowColor = fill
+    ctx.shadowBlur = 10
     ctx.beginPath()
     ctx.fillStyle = fill
-    ctx.arc(node.x, node.y, 5, 0, Math.PI * 2)
+    ctx.strokeStyle = colors.signalOutline
+    ctx.lineWidth = 1.2
+    ctx.arc(node.x, node.y, 5.4, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.shadowBlur = 0
+    ctx.beginPath()
+    ctx.fillStyle = colors.signalCore
+    ctx.arc(node.x, node.y, 1.6, 0, Math.PI * 2)
     ctx.fill()
   }
 
