@@ -101,6 +101,21 @@ Signals cannot directly command ambulance movement.
 
 Coordination is emergent but bounded.
 
+```mermaid
+sequenceDiagram
+   participant A as AmbulanceAgent
+   participant B as MessageBus
+   participant S as SignalAgent
+
+   A->>B: reservation_request
+   B->>S: deliver request
+   S->>S: evaluate queue + hysteresis
+   S->>B: reservation_response
+   B->>A: deliver response
+
+   A->>S: reservation_release (after passing)
+```
+
 ---
 
 ## Deadlock Handling
