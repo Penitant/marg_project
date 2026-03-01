@@ -2,6 +2,7 @@ import MetricsPanel from './MetricsPanel'
 import SpawnPanel from './SpawnPanel'
 import ConfigPanel from './ConfigPanel'
 import LogsPanel from './LogsPanel'
+import ChaosPanel from './ChaosPanel'
 
 export default function BodySection({
   metrics,
@@ -15,6 +16,7 @@ export default function BodySection({
   onUiConfigChange,
   hiddenAmbulances,
   movementLogs,
+  onLaunchChaos,
 }) {
   return (
     <section className="body-section">
@@ -24,6 +26,7 @@ export default function BodySection({
       </div>
       <div className="panel-grid">
         <div className="controls-column">
+          <ChaosPanel onLaunchChaos={onLaunchChaos} />
           <SpawnPanel nodes={nodes} onSpawnAmbulance={onSpawnAmbulance} />
           <ConfigPanel
             onApplyConfig={onApplyConfig}

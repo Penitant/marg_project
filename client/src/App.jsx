@@ -55,6 +55,22 @@ function App() {
     return data.ambulance_id
   }
 
+  const launchChaos = async (payload) => {
+    const response = await fetch('http://localhost:8000/chaos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null)
+      const detail = typeof errorBody?.detail === 'string' ? errorBody.detail : 'Failed to launch chaos'
+      throw new Error(detail)
+    }
+
+    return response.json()
+  }
+
   useEffect(() => {
     const nowTick = Number(snapshot.timestamp ?? 0)
     const map = arrivedAtByIdRef.current
@@ -174,6 +190,7 @@ function App() {
           onUiConfigChange={setUiConfig}
           hiddenAmbulances={hiddenAmbulances}
           movementLogs={movementLogs}
+          onLaunchChaos={launchChaos}
         />
       </main>
     </div>

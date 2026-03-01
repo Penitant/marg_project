@@ -77,3 +77,29 @@ def test_concurrent_reset_does_not_crash() -> None:
         results = [future.result() for future in futures]
         assert all(status == 200 for status, _ in results)
         assert all("timestamp" in body for _, body in results)
+
+
+def test_chaos_spawn_is_deterministic_for_same_seed() -> None:
+    with TestClient(app) as client:
+        client.post("/reset", json={"seed": 10})
+        first = client.post("/chaos", json={"count": 8, "seed": 123}).json()
+
+        client.post("/reset", json={"seed": 10})
+        second = client.post("/chaos", json={"count": 8, "seed": 123}).json()
+
+        assert first["spawned"] == second["spawned"]
+        assert first["ambulance_ids"] == second["ambulance_ids"]
+
+
+def test_chaos_caps_to_node_minus_one() -> None:
+    with TestClient(app) as client:
+        snapshot = client.post("/reset_with_config", json={"seed": 22, "grid_rows": 3, "grid_cols": 3}).json()
+        node_count = len(snapshot["nodes"])
+
+        response = client.post("/chaos", json={"count": 999, "seed": 456})
+        assert response.status_code == 400
+
+        response_ok = client.post("/chaos", json={"count": 50, "seed": 456})
+        assert response_ok.status_code == 200
+        payload = response_ok.json()
+        assert payload["spawned"] == node_count - 1

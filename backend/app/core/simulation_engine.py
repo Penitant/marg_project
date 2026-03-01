@@ -129,6 +129,24 @@ class SimulationEngine(SimulationInterface):
         self.register_agent(ambulance)
         return assigned_id
 
+    def spawn_chaos_ambulances(self, count: int, seed: int) -> list[str]:
+        node_ids = [node["id"] for node in self.city_graph.get_intersections()]
+        if len(node_ids) < 2:
+            return []
+
+        valid_pairs = [(source, target) for source in node_ids for target in node_ids if source != target]
+        deterministic_rng = random.Random(seed)
+        deterministic_rng.shuffle(valid_pairs)
+
+        max_count = min(max(0, int(count)), len(node_ids) - 1, len(valid_pairs))
+        selected_pairs = valid_pairs[:max_count]
+
+        spawned_ids: list[str] = []
+        for source, destination in selected_pairs:
+            spawned_ids.append(self.spawn_ambulance(source=source, destination=destination))
+
+        return spawned_ids
+
     def register_agent(self, agent: Any) -> None:
         self.agents[str(agent.agent_id)] = agent
 
@@ -219,6 +237,12 @@ class SimulationEngine(SimulationInterface):
         for ambulance in self.ambulances.values():
             if ambulance.arrived:
                 self.metrics_engine.record_response_time(ambulance.response_time)
+
+            for state in ambulance.reservation_window.values():
+                corridor_id = str(state.get("corridor_id", ""))
+                status = str(state.get("status", ""))
+                self.metrics_engine.observe_corridor_window(corridor_id, status)
+
             self.metrics_engine.record_wait_time(ambulance.waiting_ticks)
             self.metrics_engine.record_effective_priority(ambulance.effective_priority)
         for signal in self.signals.values():

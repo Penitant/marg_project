@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import asdict
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -43,6 +43,7 @@ engine_lock = threading.Lock()
 connected_clients: set[WebSocket] = set()
 running = False
 broadcaster_task: asyncio.Task | None = None
+MAX_CHAOS_AMBULANCES = 500
 
 
 def simulation_loop() -> None:
@@ -145,6 +146,11 @@ class ResetWithConfigRequest(BaseModel):
     snapshot_broadcast_interval: int | None = None
 
 
+class ChaosRequest(BaseModel):
+    count: int
+    seed: int
+
+
 @app.get("/state")
 def get_state() -> dict:
     with engine_lock:
@@ -189,6 +195,24 @@ def reset_with_config(payload: ResetWithConfigRequest) -> dict:
         snapshot = copy.deepcopy(engine.get_system_snapshot())
 
     return snapshot
+
+
+@app.post("/chaos")
+def chaos_spawn(payload: ChaosRequest) -> dict:
+    if payload.count > MAX_CHAOS_AMBULANCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"count exceeds MAX_CHAOS_AMBULANCES ({MAX_CHAOS_AMBULANCES})",
+        )
+
+    with engine_lock:
+        ambulance_ids = engine.spawn_chaos_ambulances(count=payload.count, seed=payload.seed)
+
+    return {
+        "spawned": len(ambulance_ids),
+        "seed": payload.seed,
+        "ambulance_ids": ambulance_ids,
+    }
 
 
 @app.websocket("/ws")
