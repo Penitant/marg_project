@@ -260,13 +260,13 @@ uvicorn backend.app.main:app --reload
 
 Available endpoints:
 
-GET /state
-GET /metrics
-POST /spawn_ambulance
-POST /reset
-POST /reset_with_config
-POST /chaos
-WebSocket: /ws
+- `GET /state`
+- `GET /metrics`
+- `POST /spawn_ambulance`
+- `POST /reset`
+- `POST /reset_with_config`
+- `POST /chaos`
+- `WebSocket: /ws`
 
 ---
 
