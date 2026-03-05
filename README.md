@@ -40,12 +40,6 @@ The system is structured to be testable, reproducible, and extensible.
 
 The system follows a strict separation of responsibilities:
 
-Ambulance Agents <-> Signal Agents
-            |
-         Message Bus
-            |
-        Simulation Engine
-
 ### Simulation Engine
 
 * Advances discrete time steps
