@@ -24,10 +24,6 @@ export default function MetricsPanel({ metrics }) {
           <span className="metric-value">{formatNumber(metrics.fairness_index)}</span>
         </div>
         <div className="metric-item">
-          <span className="metric-label">Queue Length</span>
-          <span className="metric-value">{formatNumber(metrics.average_queue_length)}</span>
-        </div>
-        <div className="metric-item">
           <span className="metric-label">Reservation Success Rate</span>
           <span className="metric-value">{formatNumber(Number(metrics.reservation_success_rate) * 100)}%</span>
         </div>
